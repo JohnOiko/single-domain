@@ -23,7 +23,7 @@ def train(model, device, train_loader, optimizer, loss_function, gradient_accumu
 
                 # Evaluation
                 if batch_idx == len(pbar) - 1 and val_loader is not None:
-                    # Set evalutaion mode
+                    # Set evaluation mode
                     model.eval()
                     total = 0
                     running_loss = 0.0

@@ -19,7 +19,7 @@ def parse_args():
 
 
 def main():
-    utils.fix_keyboard_interrupts()
+    # utils.fix_keyboard_interrupts()
     args = parse_args()
     device = utils.select_device(args.device_id, args.no_hw_accel)
 
@@ -32,7 +32,7 @@ def main():
 
     # Params
     batch_size = 1024
-    epochs = 50
+    epochs = 25
     learning_rate = 0.001
     momentum = 0.9
     weight_decay = 0.00001
@@ -58,7 +58,8 @@ def main():
 
     # Load the model on the device
     model = models.resnet50(num_classes=num_classes).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
+
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
     loss_function = nn.CrossEntropyLoss().to(device)
     ResNet50.train(model, device, train_loader, optimizer, loss_function, gradient_accumulation_steps, epochs,
                    val_loader=val_loader)
