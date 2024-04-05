@@ -24,20 +24,20 @@ def main():
     device = utils.select_device(args.device_id, args.no_hw_accel)
 
     # Dataset setup
-    transform = transforms.Compose([transforms.Grayscale(num_output_channels=3), transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
+    transform = transforms.Compose([transforms.Grayscale(num_output_channels=3), transforms.ToTensor(),
+                                    transforms.Normalize((0.1307,), (0.3081,))])
     dataset_root = '../data'
     mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform)
     mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform)
     num_classes = len(mnist_train.classes)
 
     # Params
-    batch_size = 1024
-    epochs = 50
-    learning_rate = 0.001
-    momentum = 0.9
-    weight_decay = 0.00001
+    batch_size = 2024
+    epochs = 20
+    learning_rate = 0.0001
+    weight_decay = 0.0001
     gradient_accumulation_steps = 1
-    valid_ratio = 0.1
+    valid_ratio = 0.2
     random_seed = 0
 
     train_kwargs = {'batch_size': batch_size}
@@ -58,9 +58,11 @@ def main():
 
     # Load the model on the device
     model = models.resnet50(num_classes=num_classes).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
-    loss_function = nn.CrossEntropyLoss().to(device)
-    ResNet50.train(model, device, train_loader, optimizer, loss_function, gradient_accumulation_steps, epochs,
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    criterion = nn.CrossEntropyLoss().to(device)
+
+    print(f'Starting ResNet50 training:')
+    ResNet50.train(model, device, train_loader, optimizer, criterion, gradient_accumulation_steps, epochs,
                    val_loader=val_loader)
 
 
