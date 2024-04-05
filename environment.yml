@@ -1,4 +1,4 @@
-name: pydml_python_3.8
+name: pydml_cuda_python_3.8
 channels:
   - pytorch
   - defaults
@@ -169,4 +169,3 @@ dependencies:
       - torchvision==0.15.1
       - typing-extensions==4.11.0
       - wget==3.2
-prefix: C:\Programs\Coding\Anaconda\envs\pydml_python_3.8
