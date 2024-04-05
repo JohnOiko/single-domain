@@ -1,4 +1,4 @@
-name: pydml_cuda_python_3.8
+name: simple_domain
 channels:
   - pytorch
   - defaults
