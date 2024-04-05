@@ -1,11 +1,12 @@
 import torchvision
 from src.utils import utils
 from torchvision import models, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import argparse
 from torch import nn
 import torch
 from src.models import ResNet50
+from sklearn.model_selection import train_test_split
 
 
 def parse_args():
@@ -18,8 +19,8 @@ def parse_args():
 
 
 def main():
+    utils.fix_keyboard_interrupts()
     args = parse_args()
-
     device = utils.select_device(args.device_id, args.no_hw_accel)
 
     # Dataset setup
@@ -36,7 +37,8 @@ def main():
     momentum = 0.9
     weight_decay = 0.00001
     gradient_accumulation_steps = 1
-    log_interval = 5
+    valid_ratio = 0.1
+    random_seed = 0
 
     train_kwargs = {'batch_size': batch_size}
     test_kwargs = {'batch_size': batch_size}
@@ -46,16 +48,20 @@ def main():
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
-    train_subset, val_subset = torch.utils.data.random_split(mnist_train, [50000, 10000], generator=torch.Generator().manual_seed(1))
-    train_loader = DataLoader(dataset=train_subset, **train_kwargs)
-    val_loader = DataLoader(dataset=val_subset, **train_kwargs)
+    train_idx, valid_idx, _, _ = train_test_split(range(len(mnist_train)), mnist_train.targets,
+                                                         stratify=mnist_train.targets, test_size=valid_ratio,
+                                                         random_state=random_seed)
+
+    train_loader = DataLoader(dataset=Subset(mnist_train, train_idx), **train_kwargs)
+    val_loader = DataLoader(dataset=Subset(mnist_train, valid_idx), **train_kwargs)
     test_loader = DataLoader(mnist_test, **test_kwargs)
 
     # Load the model on the device
     model = models.resnet50(num_classes=num_classes).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
     loss_function = nn.CrossEntropyLoss().to(device)
-    ResNet50.train(model, device, train_loader, optimizer, loss_function, gradient_accumulation_steps, epochs, val_loader=val_loader)
+    ResNet50.train(model, device, train_loader, optimizer, loss_function, gradient_accumulation_steps, epochs,
+                   val_loader=val_loader)
 
 
 if __name__ == '__main__':
