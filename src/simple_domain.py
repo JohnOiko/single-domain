@@ -1,12 +1,14 @@
-import torchvision
-from src.utils import utils
-from torchvision import models, transforms
-from torch.utils.data import DataLoader, Subset
 import argparse
-from torch import nn
+
 import torch
-from src.models import ResNet50
+import torchvision
 from sklearn.model_selection import train_test_split
+from torch import nn
+from torch.utils.data import DataLoader, Subset
+from torchvision import models, transforms
+
+from src.models import ResNet50
+from src.utils import utils
 
 
 def parse_args():
