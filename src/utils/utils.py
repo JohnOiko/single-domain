@@ -21,7 +21,7 @@ def select_device(device_id=None, no_hw_accel=False):
     return device
 
 
-# Fixes the error that appears when scipy is installed and a keyboard interrupt is created, causing python to hang.
+# Fixes the error that appears when scipy is installed, and a keyboard interrupt is created, causing python to hang.
 # Solution found here and updated to python 3: https://stackoverflow.com/a/15472811
 def fix_keyboard_interrupts():
     import os
