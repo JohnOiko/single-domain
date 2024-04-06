@@ -1,17 +1,55 @@
 import os
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
 import scipy
 import torch
 import torchvision
+from PIL import Image
 from sklearn.preprocessing import LabelBinarizer
+from torch.utils.data import Dataset
 
 try:
     import torch_directml
     available_directml = True
 except ImportError:
     available_directml = False
+
+
+class NumpyDataset(Dataset):
+    def __init__(self, np_path, train=True, transform: Optional[Callable] = None, target_transform: Optional[Callable] = None):
+        dataset = np.load(np_path, allow_pickle=True)
+        keys = list(dataset.keys())
+
+        if train:
+            self.data = torch.from_numpy(dataset['train_inputs']) if 'train_inputs' in keys else None
+            self.targets = torch.from_numpy(dataset['train_labels']) if 'train_labels' in keys else None
+            self.one_hot_targets = torch.from_numpy(dataset['train_targets']) if 'train_targets' in keys else None
+        else:
+            self.data = torch.from_numpy(dataset['test_inputs']) if 'test_inputs' in keys else None
+            self.targets = torch.from_numpy(dataset['test_labels']) if 'test_labels' in keys else None
+            self.one_hot_targets = torch.from_numpy(dataset['test_targets']) if 'test_targets' in keys else None
+
+        self.classes = dataset['target_names'].tolist() if 'target_names' in keys else None
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        img, target = self.data[index], int(self.targets[index])
+
+        img = Image.fromarray(img.numpy(), mode="L")
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
 
 
 # Automatically selects and returns the best available device based on the available hardware acceleration options.

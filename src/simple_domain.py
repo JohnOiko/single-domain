@@ -29,9 +29,9 @@ def main():
     transform = transforms.Compose([transforms.Grayscale(num_output_channels=3), transforms.ToTensor(),
                                     transforms.Normalize((0.1307,), (0.3081,))])
     dataset_root = '../data'
-    mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform)
-    mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform)
-    num_classes = len(mnist_train.classes)
+    mnist_train_remote = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True)
+    mnist_test_remote = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True)
+    num_classes = len(mnist_train_remote.classes)
 
     # Params
     batch_size = 2024
@@ -42,11 +42,13 @@ def main():
     valid_ratio = 0.2
     random_seed = 0
 
+    path, keys = utils.save_torch_dataset('domain/digits/mnist', mnist_train_remote, mnist_test_remote, overwrite=True)
+    mnist_train = utils.NumpyDataset(path, train=True, transform=transform)
+
     train_kwargs = {'batch_size': batch_size}
     test_kwargs = {'batch_size': batch_size}
     if not args.no_hw_accel:
-        cuda_kwargs = {'num_workers': 0,
-                       'shuffle': True}
+        cuda_kwargs = {'shuffle': True}
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
@@ -56,7 +58,7 @@ def main():
 
     train_loader = DataLoader(dataset=Subset(mnist_train, train_idx), **train_kwargs)
     val_loader = DataLoader(dataset=Subset(mnist_train, valid_idx), **train_kwargs)
-    test_loader = DataLoader(mnist_test, **test_kwargs)
+    test_loader = DataLoader(mnist_test_remote, **test_kwargs)\
 
     # Load the model on the device
     model = models.resnet50(num_classes=num_classes).to(device)
