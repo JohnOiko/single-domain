@@ -35,7 +35,7 @@ def main():
 
     # Params
     batch_size = 2024
-    epochs = 20
+    epochs = 10
     learning_rate = 0.0001
     weight_decay = 0.0001
     gradient_accumulation_steps = 1
