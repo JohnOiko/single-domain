@@ -31,11 +31,22 @@ def main():
     dataset_root = '../data'
     mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform)
     mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform)
-    num_classes = len(mnist_train.classes)
+
+    print(mnist_train.data.shape)
+
+    transform = transforms.Compose([transforms.Resize((28, 28)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor(),
+                                    transforms.Normalize((0.1307,), (0.3081,))])
+
+    usps_train = torchvision.datasets.USPS(root=dataset_root, train=True, download=True, transform=transform)
+    usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform)
+
+    print(usps_train.data.shape)
+
+    num_classes = 10
 
     # Params
-    batch_size = 2024
-    epochs = 10
+    batch_size = 1024 * 2
+    epochs = 30
     learning_rate = 0.0001
     weight_decay = 0.0001
     gradient_accumulation_steps = 1
@@ -51,15 +62,15 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     train_idx, valid_idx, _, _ = train_test_split(range(len(mnist_train)), mnist_train.targets,
-                                                         stratify=mnist_train.targets, test_size=valid_ratio,
-                                                         random_state=random_seed)
+                                                  stratify=mnist_train.targets, test_size=valid_ratio,
+                                                  random_state=random_seed)
 
     train_loader = DataLoader(dataset=Subset(mnist_train, train_idx), **train_kwargs)
     val_loader = DataLoader(dataset=Subset(mnist_train, valid_idx), **train_kwargs)
     test_loader = DataLoader(mnist_test, **test_kwargs)
 
     # Load the model on the device
-    model = models.resnet50(num_classes=num_classes).to(device)
+    model = models.resnet18(num_classes=num_classes).to(device)
 
     optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     loss_function = nn.CrossEntropyLoss().to(device)

@@ -54,4 +54,4 @@ def evaluate(model, device, dataloader, criterion):
             _, predicted = torch.max(output.data, 1)
             accuracy += (predicted == target).sum().item()
 
-    return running_loss / batch_idx, accuracy / total
+    return running_loss / total, accuracy / total
