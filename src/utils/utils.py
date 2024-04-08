@@ -7,6 +7,9 @@ import torch
 import torchvision
 from sklearn.preprocessing import LabelBinarizer
 
+from torch.utils.data import Dataset, DataLoader, IterableDataset
+import itertools
+
 try:
     import torch_directml
     available_directml = True
@@ -156,3 +159,38 @@ def fix_keyboard_interrupts():
         return 0
 
     win32api.SetConsoleCtrlHandler(handler, 1)
+
+
+class TwoDataset(IterableDataset):
+    def __init__(self, dataset1, dataset2):
+        self.dataset1 = dataset1
+        self.dataset2 = dataset2
+
+        # Determine the larger dataset
+        self.larger_dataset_size = max(len(dataset1), len(dataset2))
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:  # single-process data loading, return the full iterator
+            iter1 = iter(self.dataset1)
+            iter2 = iter(self.dataset2)
+        else:  # in a worker process
+            # split workload
+            per_worker = int(np.ceil(self.larger_dataset_size / float(worker_info.num_workers)))
+            worker_id = worker_info.id
+            iter1 = itertools.islice(self.dataset1, worker_id * per_worker, (worker_id + 1) * per_worker)
+            iter2 = itertools.islice(self.dataset2, worker_id * per_worker, (worker_id + 1) * per_worker)
+
+        return self._infinite_iterator(iter1, iter2)
+
+    def _infinite_iterator(self, iter1, iter2):
+        # Create infinite iterators
+        infinite_iter1 = itertools.cycle(iter1)
+        infinite_iter2 = itertools.cycle(iter2)
+
+        for _ in range(self.larger_dataset_size):
+            # Yield a tuple of data from both datasets
+            yield next(infinite_iter1), next(infinite_iter2)
+
+    def __len__(self):
+        return self.larger_dataset_size

@@ -1,5 +1,6 @@
 import argparse
 
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import torch
@@ -151,6 +152,49 @@ class LambdaLR:
         return 1.0 - max(0, epoch + self.offset - self.decay_start_epoch) / (self.n_epochs - self.decay_start_epoch)
 
 
+class ReplayBuffer:
+    def __init__(self, max_size=50):
+        assert max_size > 0, "Empty buffer or trying to create a black hole. Be careful."
+        self.max_size = max_size
+        self.data = []
+
+    def push_and_pop(self, data):
+        to_return = []
+        for element in data.data:
+            element = torch.unsqueeze(element, 0)
+            if len(self.data) < self.max_size:
+                self.data.append(element)
+                to_return.append(element)
+            else:
+                if np.random.uniform(0, 1) > 0.5:
+                    i = np.random.randint(0, self.max_size - 1)
+                    to_return.append(self.data[i].clone())
+                    self.data[i] = element
+                else:
+                    to_return.append(element)
+        return Variable(torch.cat(to_return))
+
+
+def plotter(real_img, fake_img):
+    # Create a figure to hold the subplots
+    plt.figure(figsize=(10, 5))
+
+    # Plot the real image
+    plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
+    plt.imshow(real_img)
+    plt.title('Real Image')
+    plt.axis('off')  # Hide the axis
+
+    # Plot the fake/generated image
+    plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
+    plt.imshow(fake_img)
+    plt.title('Fake Image')
+    plt.axis('off')  # Hide the axis
+
+    plt.tight_layout()
+    plt.show()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(prog="Simple Domain")
     parser.add_argument('-d', '--device_id', type=int,
@@ -178,7 +222,7 @@ if __name__ == '__main__':
     usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform)
 
     # Params
-    batch_size = 512
+    batch_size = 256
     epochs = 200
     learning_rate = 0.0001
     weight_decay = 0.0001
@@ -189,17 +233,22 @@ if __name__ == '__main__':
     train_kwargs = {'batch_size': batch_size}
     test_kwargs = {'batch_size': batch_size}
     if not args.no_hw_accel:
-        cuda_kwargs = {'num_workers': 0,
-                       'drop_last': True,  # I can't bother with the different datasets sizes
-                       'shuffle': True}
+        cuda_kwargs = {'num_workers': 0}
+        # 'shuffle': True}
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
-    mnist_train_loader = DataLoader(mnist_train, **train_kwargs)
-    mnist_test_loader = DataLoader(mnist_test, **test_kwargs)
+    # mnist_train_loader = DataLoader(mnist_train, **train_kwargs)
+    # mnist_test_loader = DataLoader(mnist_test, **test_kwargs)
+    #
+    # usps_train_loader = DataLoader(usps_train, **train_kwargs)
+    # usps_test_loader = DataLoader(usps_test, **test_kwargs)
 
-    usps_train_loader = DataLoader(usps_train, **train_kwargs)
-    usps_test_loader = DataLoader(usps_test, **test_kwargs)
+    two_train_dataset = utils.TwoDataset(mnist_train, usps_train)
+    two_test_dataset = utils.TwoDataset(mnist_test, usps_test)
+
+    train_loader = DataLoader(two_train_dataset, **train_kwargs)
+    test_loader = DataLoader(two_test_dataset, **test_kwargs)
 
     # Losses
     criterion_GAN = torch.nn.MSELoss().to(device)
@@ -231,10 +280,12 @@ if __name__ == '__main__':
         optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 100).step
     )
 
-    Tensor = torch.cuda.FloatTensor
+    Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
+
+    fake_S_buffer = ReplayBuffer()
 
     for epoch in range(epochs):
-        batches_num = len(usps_train_loader)
+        batches_num = len(train_loader)
         correct_S = 0
         total_S = 0
         correct_T = 0
@@ -243,7 +294,7 @@ if __name__ == '__main__':
         pbar = tf.keras.utils.Progbar(batches_num)
 
         # TODO: Change this training loop (problem with unequal dataset sizes)
-        for batch_idx, ((data_S, target_S), (data_T, target_T)) in enumerate(zip(mnist_train_loader, usps_train_loader)):
+        for batch_idx, ((data_S, target_S), (data_T, target_T)) in enumerate(train_loader):
             data_S, target_S = data_S.to(device), target_S.to(device)
             data_T, target_T = data_T.to(device), target_T.to(device)
 
@@ -260,7 +311,6 @@ if __name__ == '__main__':
             optimizer_C.zero_grad()
 
             pred_S = C(data_S)
-            pred_T = C(data_T)
 
             # Classification loss
             loss_C = criterion_classification(pred_S, target_S)
@@ -278,42 +328,78 @@ if __name__ == '__main__':
             optimizer_G.zero_grad()
 
             # GAN loss
-            fake_S = G_TS(data_S)
-            loss_GAN_ST = criterion_GAN(D_S(fake_S), valid)
+            fake_S = G_TS(data_T)
+            loss_GAN_TS = criterion_GAN(D_S(fake_S), valid)
 
             # Cycle loss
             reconstruct_T = G_ST(fake_S)
-            loss_cycle_A = criterion_cycle(reconstruct_T, data_T)
+            loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
 
-            total_loss = loss_GAN_ST + loss_cycle_A
+            total_G_loss = loss_GAN_TS + loss_cycle_T
 
-            total_loss.backward()
+            total_G_loss.backward()
             optimizer_G.step()
 
             # -----------------------
             #  Train Discriminator A
             # -----------------------
 
-            # D_S.train()
+            D_S.train()
 
             optimizer_D_S.zero_grad()
 
             # Real loss
             loss_real = criterion_GAN(D_S(data_S), valid)
             # Fake loss (on batch of previously generated samples)
-            loss_fake = criterion_GAN(D_S(fake_S.detach()), fake)
+            fake_S_ = fake_S_buffer.push_and_pop(fake_S)
+            loss_fake = criterion_GAN(D_S(fake_S_.detach()), fake)
             # Total loss
-            loss_D_S = loss_real + loss_fake
+            total_D_loss = loss_real + loss_fake
 
-            loss_D_S.backward()
+            total_D_loss.backward()
             optimizer_D_S.step()
 
             _, predicted_S = torch.max(pred_S.data, 1)
             total_S += target_S.size(0)
             correct_S += (predicted_S == target_S).sum().item()
 
+            pred_T = C(fake_S)
+
             _, predicted_T = torch.max(pred_T.data, 1)
             total_T += target_T.size(0)
             correct_T += (predicted_T == target_T).sum().item()
 
-            pbar.update(batch_idx, values=[("loss", total_loss.item()), ("Source acc", correct_S / total_S), ("Target acc", correct_T / total_T), ("Average accuracy", (correct_S + correct_T) / (total_S + total_T))])
+            pbar.update(batch_idx, values=[("G loss", total_G_loss.item()), ("D loss", total_D_loss.item()), ("Train-Source acc", correct_S / total_S), ("Train-Target acc", correct_T / total_T), ("Train-Average accuracy", (correct_S + correct_T) / (total_S + total_T))])
+
+        C.eval()
+        G_TS.eval()
+
+        correct_S = 0
+        total_S = 0
+        correct_T = 0
+        total_T = 0
+        with torch.no_grad():
+            for batch_idx, ((data_S, target_S), (data_T, target_T)) in enumerate(test_loader):
+                data_S, target_S = data_S.to(device), target_S.to(device)
+                data_T, target_T = data_T.to(device), target_T.to(device)
+
+                pred_S = C(data_S)
+                fake_S = G_TS(data_T)
+                pred_T = C(fake_S)
+
+                _, predicted_S = torch.max(pred_S.data, 1)
+                total_S += target_S.size(0)
+                correct_S += (predicted_S == target_S).sum().item()
+
+                _, predicted_T = torch.max(pred_T.data, 1)
+                total_T += target_T.size(0)
+                correct_T += (predicted_T == target_T).sum().item()
+
+        pbar.update(batches_num, values=[("Val-Source acc", correct_S / total_S), ("Val-Target acc", correct_T / total_T), ("Val-Average accuracy", (correct_S + correct_T) / (total_S + total_T))])
+
+        lr_scheduler_G.step()
+        lr_scheduler_D_S.step()
+
+        real_target = np.clip(data_T[0].cpu().detach().numpy().transpose((1, 2, 0)), 0, 1)
+        fake_source = np.clip(fake_S[0].cpu().detach().numpy().transpose((1, 2, 0)), 0, 1)
+        plotter(real_target, fake_source)
