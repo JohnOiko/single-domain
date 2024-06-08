@@ -282,7 +282,7 @@ if __name__ == '__main__':
         optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 100).step
     )
 
-    Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
+    #Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
 
     fake_S_buffer = ReplayBuffer()
 
@@ -309,8 +309,8 @@ if __name__ == '__main__':
             data_T, target_T = data_T.to(device), target_T.to(device)
 
             # Adversarial ground truths
-            valid = Variable(Tensor(np.ones((data_S.size(0), *D_S.output_shape))), requires_grad=False)
-            fake = Variable(Tensor(np.zeros((data_T.size(0), *D_S.output_shape))), requires_grad=False)
+            valid = Variable(torch.from_numpy(np.ones((data_S.size(0), *D_S.output_shape))).float().to(device), requires_grad=False)
+            fake = Variable(torch.from_numpy(np.zeros((data_T.size(0), *D_S.output_shape))).float().to(device), requires_grad=False)
 
             # ------------------
             #  Train Classifier
