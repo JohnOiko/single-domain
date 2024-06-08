@@ -65,8 +65,8 @@ class GeneratorResNet(nn.Module):
         # Initial convolution block
         out_features = 64
         model = [
-            nn.ReflectionPad2d(channels),
-            nn.Conv2d(channels, out_features, 7),
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(channels, out_features, 7, padding=0),
             nn.InstanceNorm2d(out_features),
             nn.ReLU(inplace=True),
         ]
@@ -90,7 +90,7 @@ class GeneratorResNet(nn.Module):
         for _ in range(2):
             out_features //= 2
             model += [
-                nn.Upsample(scale_factor=2),
+                nn.Upsample(scale_factor=2, mode='nearest'),
                 nn.Conv2d(in_features, out_features, 3, stride=1, padding=1),
                 nn.InstanceNorm2d(out_features),
                 nn.ReLU(inplace=True),
@@ -98,7 +98,11 @@ class GeneratorResNet(nn.Module):
             in_features = out_features
 
         # Output layer
-        model += [nn.ReflectionPad2d(channels), nn.Conv2d(out_features, channels, 7), nn.Tanh()]
+        model += [
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(out_features, channels, 7, padding=0),
+            nn.Tanh()
+        ]
 
         self.model = nn.Sequential(*model)
 
@@ -123,8 +127,8 @@ class Discriminator(nn.Module):
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns down-sampling layers of each discriminator block"""
             layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
-            if normalize:
-                layers.append(nn.InstanceNorm2d(out_filters))
+            # if normalize:
+            #     layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
 
@@ -175,21 +179,21 @@ class ReplayBuffer:
         return Variable(torch.cat(to_return))
 
 
-def plotter(real_img, fake_img):
-    # Create a figure to hold the subplots
-    plt.figure(figsize=(10, 5))
+def plotter(real_targets, fake_sources, recont_targets):
+    """Plot images in a grid."""
+    fig, axs = plt.subplots(3, 3, figsize=(12, 12))
+    for i in range(3):  # Assuming you have 3 images for each type
+        axs[i, 0].imshow(real_targets[i], cmap='gray')
+        axs[i, 0].set_title("Real Target")
+        axs[i, 0].axis('off')
 
-    # Plot the real image
-    plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
-    plt.imshow(real_img)
-    plt.title('Real Image')
-    plt.axis('off')  # Hide the axis
+        axs[i, 1].imshow(fake_sources[i], cmap='gray')
+        axs[i, 1].set_title("Fake Source")
+        axs[i, 1].axis('off')
 
-    # Plot the fake/generated image
-    plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
-    plt.imshow(fake_img)
-    plt.title('Fake Image')
-    plt.axis('off')  # Hide the axis
+        axs[i, 2].imshow(recont_targets[i], cmap='gray')
+        axs[i, 2].set_title("Reconstructed Target")
+        axs[i, 2].axis('off')
 
     plt.tight_layout()
     plt.show()
@@ -209,20 +213,18 @@ if __name__ == '__main__':
     device = utils.select_device(args.device_id, args.no_hw_accel)
 
     # Dataset setup
-    transform = transforms.Compose([transforms.Resize((32, 32)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor(),
-                                    transforms.Normalize((0.1307,), (0.3081,))])
+    transform1 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.ToTensor()])
     dataset_root = '../../data'
-    mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform)
-    mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform)
+    mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform1)
+    mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform1)
 
-    transform = transforms.Compose([transforms.Resize((32, 32)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor(),
-                                    transforms.Normalize((0.1307,), (0.3081,))])
+    transform2 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.ToTensor()])
 
-    usps_train = torchvision.datasets.USPS(root=dataset_root, train=True, download=True, transform=transform)
-    usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform)
+    usps_train = torchvision.datasets.SVHN(root=dataset_root, split='train', download=True, transform=transform2)
+    usps_test = torchvision.datasets.SVHN(root=dataset_root, split='test', download=True, transform=transform2)
 
     # Params
-    batch_size = 256
+    batch_size = 64
     epochs = 200
     learning_rate = 0.0001
     weight_decay = 0.0001
@@ -257,7 +259,7 @@ if __name__ == '__main__':
     criterion_classification = nn.CrossEntropyLoss().to(device)
 
     # Models
-    input_shape = (3, 32, 32)
+    input_shape = (1, 64, 64)
 
     # Initialize generator and discriminator
     G_TS = GeneratorResNet(input_shape, 3).to(device)
@@ -293,8 +295,16 @@ if __name__ == '__main__':
         print(f'\nEpoch {epoch + 1}/{epochs}')
         pbar = tf.keras.utils.Progbar(batches_num)
 
-        # TODO: Change this training loop (problem with unequal dataset sizes)
         for batch_idx, ((data_S, target_S), (data_T, target_T)) in enumerate(train_loader):
+            if batch_idx == 0:
+                fig, axes = plt.subplots(2, 2, figsize=(6, 6))
+                randinx = np.random.choice(data_S.size(0), 4, replace=False)
+                axes[0, 0].imshow(data_S[randinx[0]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
+                axes[0, 1].imshow(data_S[randinx[1]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
+                axes[1, 0].imshow(data_T[randinx[2]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
+                axes[1, 1].imshow(data_T[randinx[3]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
+                plt.show()
+
             data_S, target_S = data_S.to(device), target_S.to(device)
             data_T, target_T = data_T.to(device), target_T.to(device)
 
@@ -310,7 +320,7 @@ if __name__ == '__main__':
 
             optimizer_C.zero_grad()
 
-            pred_S = C(data_S)
+            pred_S = C(data_S.expand(-1, 3, -1, -1))
 
             # Classification loss
             loss_C = criterion_classification(pred_S, target_S)
@@ -327,15 +337,19 @@ if __name__ == '__main__':
 
             optimizer_G.zero_grad()
 
+            # Identity loss
+            # indentiy_S = G_TS(data_S)
+            # loss_identity = criterion_identity(indentiy_S, data_S)
+
             # GAN loss
             fake_S = G_TS(data_T)
             loss_GAN_TS = criterion_GAN(D_S(fake_S), valid)
 
             # Cycle loss
-            reconstruct_T = G_ST(fake_S)
-            loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
+            # reconstruct_T = G_ST(fake_S)
+            # loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
 
-            total_G_loss = loss_GAN_TS + loss_cycle_T
+            total_G_loss = 10 * loss_GAN_TS
 
             total_G_loss.backward()
             optimizer_G.step()
@@ -363,7 +377,7 @@ if __name__ == '__main__':
             total_S += target_S.size(0)
             correct_S += (predicted_S == target_S).sum().item()
 
-            pred_T = C(fake_S)
+            pred_T = C(fake_S.expand(-1, 3, -1, -1))
 
             _, predicted_T = torch.max(pred_T.data, 1)
             total_T += target_T.size(0)
@@ -383,9 +397,10 @@ if __name__ == '__main__':
                 data_S, target_S = data_S.to(device), target_S.to(device)
                 data_T, target_T = data_T.to(device), target_T.to(device)
 
-                pred_S = C(data_S)
+                pred_S = C(data_S.expand(-1, 3, -1, -1))
                 fake_S = G_TS(data_T)
-                pred_T = C(fake_S)
+                pred_T = C(fake_S.expand(-1, 3, -1, -1))
+                recont_T = G_ST(fake_S)
 
                 _, predicted_S = torch.max(pred_S.data, 1)
                 total_S += target_S.size(0)
@@ -400,6 +415,8 @@ if __name__ == '__main__':
         lr_scheduler_G.step()
         lr_scheduler_D_S.step()
 
-        real_target = np.clip(data_T[0].cpu().detach().numpy().transpose((1, 2, 0)), 0, 1)
-        fake_source = np.clip(fake_S[0].cpu().detach().numpy().transpose((1, 2, 0)), 0, 1)
-        plotter(real_target, fake_source)
+        rnd_idx = np.random.choice(data_T.size(0), 3, replace=False)
+        real_target = np.clip(data_T[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
+        fake_source = np.clip(fake_S[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
+        recont_target = np.clip(recont_T[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
+        plotter(real_target, fake_source, recont_target)
