@@ -122,24 +122,24 @@ class Discriminator(nn.Module):
         channels, height, width = input_shape
 
         # Calculate output shape of image discriminator (PatchGAN)
-        self.output_shape = (1, height // 2 ** 2, width // 2 ** 2)
+        self.output_shape = (1, height // 2 ** 4, width // 2 ** 4)
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns down-sampling layers of each discriminator block"""
             layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             # if normalize:
             #     layers.append(nn.InstanceNorm2d(out_filters))
-            layers.append(nn.Dropout(0.4))
+            layers.append(nn.Dropout(0.7))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
 
         self.model = nn.Sequential(
             *discriminator_block(channels, 64, normalize=False),
             *discriminator_block(64, 128),
-            # *discriminator_block(128, 256),
-            # *discriminator_block(256, 512),
+            *discriminator_block(128, 256),
+            *discriminator_block(256, 512),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(128, 1, 4, padding=1)
+            nn.Conv2d(512, 1, 4, padding=1)
         )
 
     def forward(self, img):
@@ -225,7 +225,7 @@ if __name__ == '__main__':
     usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform2)
 
     # Params
-    batch_size = 1
+    batch_size = 64
     epochs = 10
     learning_rate = 0.0001
     weight_decay = 0.0001
@@ -391,6 +391,10 @@ if __name__ == '__main__':
 
             pbar.update(batch_idx, values=[("G loss", total_G_loss.item()), ("D loss", total_D_loss.item()), ("Train-Source acc", correct_S / total_S), ("Train-Target acc", correct_T / total_T), ("Train-Average accuracy", (correct_S + correct_T) / (total_S + total_T))])
 
+        train_source_acc.append(correct_S / total_S)
+        train_target_acc.append(correct_T / total_T)
+        train_avg_acc.append((correct_S + correct_T) / (total_S + total_T))
+
         C.eval()
         G_TS.eval()
 
@@ -427,5 +431,9 @@ if __name__ == '__main__':
         recont_target = np.clip(recont_T[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
         plotter(real_target, fake_source, recont_target)
 
-    np.savez('gan_results.npz', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
+        val_source_acc.append(correct_S / total_S)
+        val_target_acc.append(correct_T / total_T)
+        val_avg_acc.append((correct_S + correct_T) / (total_S + total_T))
+
+    np.savez('../../dump/gan_results.npz', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
              val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc, gan_loss=gan_loss, dis_loss=dis_loss)
