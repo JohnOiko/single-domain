@@ -122,23 +122,24 @@ class Discriminator(nn.Module):
         channels, height, width = input_shape
 
         # Calculate output shape of image discriminator (PatchGAN)
-        self.output_shape = (1, height // 2 ** 4, width // 2 ** 4)
+        self.output_shape = (1, height // 2 ** 2, width // 2 ** 2)
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns down-sampling layers of each discriminator block"""
             layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             # if normalize:
             #     layers.append(nn.InstanceNorm2d(out_filters))
+            layers.append(nn.Dropout(0.4))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
 
         self.model = nn.Sequential(
             *discriminator_block(channels, 64, normalize=False),
             *discriminator_block(64, 128),
-            *discriminator_block(128, 256),
-            *discriminator_block(256, 512),
+            # *discriminator_block(128, 256),
+            # *discriminator_block(256, 512),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(512, 1, 4, padding=1)
+            nn.Conv2d(128, 1, 4, padding=1)
         )
 
     def forward(self, img):
@@ -218,14 +219,14 @@ if __name__ == '__main__':
     mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform1)
     mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform1)
 
-    transform2 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.ToTensor()])
+    transform2 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.RandomAdjustSharpness(sharpness_factor=10, p=1), transforms.ToTensor()])
 
-    usps_train = torchvision.datasets.SVHN(root=dataset_root, split='train', download=True, transform=transform2)
-    usps_test = torchvision.datasets.SVHN(root=dataset_root, split='test', download=True, transform=transform2)
+    usps_train = torchvision.datasets.USPS(root=dataset_root, train=True, download=True, transform=transform2)
+    usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform2)
 
     # Params
-    batch_size = 64
-    epochs = 200
+    batch_size = 1
+    epochs = 10
     learning_rate = 0.0001
     weight_decay = 0.0001
     gradient_accumulation_steps = 1
@@ -276,15 +277,25 @@ if __name__ == '__main__':
 
     # Learning rate update schedulers
     lr_scheduler_G = torch.optim.lr_scheduler.LambdaLR(
-        optimizer_G, lr_lambda=LambdaLR(epochs, 0, 100).step
+        optimizer_G, lr_lambda=LambdaLR(epochs, 0, 9).step
     )
     lr_scheduler_D_S = torch.optim.lr_scheduler.LambdaLR(
-        optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 100).step
+        optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 9).step
     )
 
-    Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
+    # Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
 
     fake_S_buffer = ReplayBuffer()
+
+    train_source_acc = []
+    train_target_acc = []
+    train_avg_acc = []
+    val_source_acc = []
+    val_target_acc = []
+    val_avg_acc = []
+
+    gan_loss = []
+    dis_loss = []
 
     for epoch in range(epochs):
         batches_num = len(train_loader)
@@ -295,23 +306,18 @@ if __name__ == '__main__':
         print(f'\nEpoch {epoch + 1}/{epochs}')
         pbar = tf.keras.utils.Progbar(batches_num)
 
+        mnist_examples = {}
+        usps_examples = {}
+
         for batch_idx, ((data_S, target_S), (data_T, target_T)) in enumerate(train_loader):
-            if batch_idx == 0:
-                fig, axes = plt.subplots(2, 2, figsize=(6, 6))
-                randinx = np.random.choice(data_S.size(0), 4, replace=False)
-                axes[0, 0].imshow(data_S[randinx[0]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
-                axes[0, 1].imshow(data_S[randinx[1]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
-                axes[1, 0].imshow(data_T[randinx[2]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
-                axes[1, 1].imshow(data_T[randinx[3]].cpu().detach().numpy().transpose((1, 2, 0)), cmap='gray')
-                plt.show()
 
             data_S, target_S = data_S.to(device), target_S.to(device)
             data_T, target_T = data_T.to(device), target_T.to(device)
 
             # Adversarial ground truths
-            valid = Variable(Tensor(np.ones((data_S.size(0), *D_S.output_shape))), requires_grad=False)
-            fake = Variable(Tensor(np.zeros((data_T.size(0), *D_S.output_shape))), requires_grad=False)
+            valid = Variable(torch.from_numpy(np.ones((data_S.size(0), *D_S.output_shape))).float().to(device), requires_grad=False)
 
+            fake = Variable(torch.from_numpy(np.zeros((data_T.size(0), *D_S.output_shape))).float().to(device), requires_grad=False)
             # ------------------
             #  Train Classifier
             # ------------------
@@ -346,10 +352,10 @@ if __name__ == '__main__':
             loss_GAN_TS = criterion_GAN(D_S(fake_S), valid)
 
             # Cycle loss
-            # reconstruct_T = G_ST(fake_S)
-            # loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
+            reconstruct_T = G_ST(fake_S)
+            loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
 
-            total_G_loss = 10 * loss_GAN_TS
+            total_G_loss = loss_GAN_TS
 
             total_G_loss.backward()
             optimizer_G.step()
@@ -420,3 +426,6 @@ if __name__ == '__main__':
         fake_source = np.clip(fake_S[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
         recont_target = np.clip(recont_T[rnd_idx].cpu().detach().numpy().transpose((0, 2, 3, 1)), 0, 1)
         plotter(real_target, fake_source, recont_target)
+
+    np.savez('gan_results.npz', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
+             val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc, gan_loss=gan_loss, dis_loss=dis_loss)
