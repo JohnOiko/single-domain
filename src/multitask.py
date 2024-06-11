@@ -2,15 +2,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 import time
+import argparse
 
 import torchvision
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torchvision import transforms
 from torchvision.models import resnet18
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device)
+from src.utils import utils
 
 def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save_model=False):
 
@@ -176,7 +175,20 @@ def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save
                      val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(prog="Simple Domain")
+    parser.add_argument('-d', '--device_id', type=int,
+                        help='the id of the device to be used for hardware acceleration if available')
+    parser.add_argument('-nhw', '--no_hw_accel', action="store_true",
+                        help='disable hardware acceleration by running on the cpu')
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
+    utils.fix_keyboard_interrupts()
+    args = parse_args()
+    device = utils.select_device(args.device_id, args.no_hw_accel)
+
     transform1 = transforms.Compose(
         [transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
     dataset_root = '../../data'
