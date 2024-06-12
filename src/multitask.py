@@ -12,11 +12,10 @@ from torchvision.models import resnet18
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save_model=False):
 
+def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save_model=False):
     res = resnet18()
     encoder = torch.nn.Sequential(*(list(res.children())[:-1])).to(device)
-
 
     class TaskHead(nn.Module):
         def __init__(self, input_size, classes):
@@ -27,7 +26,6 @@ def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save
             x = torch.flatten(x, 1)
             x = self.fc(x)
             return x
-
 
     flip_head = TaskHead(512, 1).to(device)
     rotation_head = TaskHead(512, 4).to(device)
@@ -49,7 +47,7 @@ def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save
     criterion_loc = nn.CrossEntropyLoss()
     criterion_classification = nn.CrossEntropyLoss()
 
-    epochs = 20
+    epochs = 30
     train_source_acc = []
     train_target_acc = []
     train_avg_acc = []
@@ -155,7 +153,6 @@ def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save
                 correct_S += (predicted == labels).sum().item()
                 total_S += labels.size(0)
 
-
             for (images, labels) in target_domain[1]:
                 images, labels = images.to(device), labels.to(device)
                 outputs = classification_head(encoder(images))
@@ -170,27 +167,27 @@ def multitask_runner(source_domain: tuple, target_domain: tuple, name: str, save
         print(
             f'Epoch {epoch + 1}/{epochs} classification loss: {loss} | train_source_acc: {train_source_acc[-1]}, train_target_acc: {train_target_acc[-1]}, train_avg_acc: {train_avg_acc[-1]}, '
             f' val_source_acc: {val_source_acc[-1]}, val_target_acc: {val_target_acc[-1]}, val_avg_acc: {val_avg_acc[-1]} | time elapsed: {time.time() - start}')
-        if save_model:
-            np.savez(f'../dump/{name}', train_source_acc=train_source_acc, train_target_acc=train_target_acc,
-                     train_avg_acc=train_avg_acc,
-                     val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc)
+    if save_model:
+        np.savez(f'../dump/{name}', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
+                 val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc)
 
 
 if __name__ == '__main__':
-    transform1 = transforms.Compose(
-        [transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
-    dataset_root = '../../data'
+    dataset_root = '../data'
+    # Dataset setup
+    transform1 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
     mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform1)
     mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform1)
 
-    transform2 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=3),
-                                     transforms.RandomAdjustSharpness(sharpness_factor=10, p=1), transforms.ToTensor()])
-
+    transform2 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=3), transforms.RandomAdjustSharpness(sharpness_factor=10, p=1), transforms.ToTensor()])
     usps_train = torchvision.datasets.USPS(root=dataset_root, train=True, download=True, transform=transform2)
     usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform2)
 
+    transform3 = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+    svhn_train = torchvision.datasets.SVHN(root=dataset_root, split='train', download=True, transform=transform3)
+    svhn_test = torchvision.datasets.SVHN(root=dataset_root, split='test', download=True, transform=transform3)
+
     source_domain = (DataLoader(mnist_train, batch_size=64, shuffle=True), DataLoader(mnist_test, batch_size=64, shuffle=True))
-    target_domain = (DataLoader(usps_train, batch_size=64, shuffle=True), DataLoader(usps_test, batch_size=64, shuffle=True))
+    target_domain = (DataLoader(svhn_train, batch_size=64, shuffle=True), DataLoader(svhn_test, batch_size=64, shuffle=True))
 
-    multitask_runner(source_domain, target_domain, "resnet_multitask_mnist_to_usps", save_model=True)
-
+    multitask_runner(source_domain, target_domain, "resnet18_multitask_mnist_svhn_results", save_model=True)

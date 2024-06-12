@@ -57,16 +57,17 @@ class ResidualBlock(nn.Module):
 
 
 class GeneratorResNet(nn.Module):
-    def __init__(self, input_shape, num_residual_blocks):
+    def __init__(self, input_shape, output_shape, num_residual_blocks):
         super(GeneratorResNet, self).__init__()
 
-        channels = input_shape[0]
+        in_channels = input_shape[0]
+        out_channels = output_shape[0]
 
         # Initial convolution block
         out_features = 64
         model = [
             nn.ReflectionPad2d(3),
-            nn.Conv2d(channels, out_features, 7, padding=0),
+            nn.Conv2d(in_channels, out_features, 7, padding=0),
             nn.InstanceNorm2d(out_features),
             nn.ReLU(inplace=True),
         ]
@@ -100,7 +101,7 @@ class GeneratorResNet(nn.Module):
         # Output layer
         model += [
             nn.ReflectionPad2d(3),
-            nn.Conv2d(out_features, channels, 7, padding=0),
+            nn.Conv2d(out_features, out_channels, 7, padding=0),
             nn.Tanh()
         ]
 
@@ -129,7 +130,6 @@ class Discriminator(nn.Module):
             layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             # if normalize:
             #     layers.append(nn.InstanceNorm2d(out_filters))
-            layers.append(nn.Dropout(0.7))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
 
@@ -139,7 +139,8 @@ class Discriminator(nn.Module):
             *discriminator_block(128, 256),
             *discriminator_block(256, 512),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(512, 1, 4, padding=1)
+            nn.Conv2d(512, 1, 4, padding=1),
+            nn.Sigmoid()
         )
 
     def forward(self, img):
@@ -214,8 +215,10 @@ if __name__ == '__main__':
     device = utils.select_device(args.device_id, args.no_hw_accel)
 
     # Dataset setup
-    transform1 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.ToTensor()])
     dataset_root = '../../data'
+
+    transform1 = transforms.Compose([transforms.Resize((64, 64)), transforms.Grayscale(num_output_channels=1), transforms.ToTensor()])
+
     mnist_train = torchvision.datasets.MNIST(root=dataset_root, train=True, download=True, transform=transform1)
     mnist_test = torchvision.datasets.MNIST(root=dataset_root, train=False, download=True, transform=transform1)
 
@@ -224,10 +227,15 @@ if __name__ == '__main__':
     usps_train = torchvision.datasets.USPS(root=dataset_root, train=True, download=True, transform=transform2)
     usps_test = torchvision.datasets.USPS(root=dataset_root, train=False, download=True, transform=transform2)
 
+    transform3 = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+
+    svhn_train = torchvision.datasets.SVHN(root=dataset_root, split='train', download=True, transform=transform3)
+    svhn_test = torchvision.datasets.SVHN(root=dataset_root, split='test', download=True, transform=transform3)
+
     # Params
     batch_size = 64
-    epochs = 10
-    learning_rate = 0.0001
+    epochs = 30
+    learning_rate = 0.00001
     weight_decay = 0.0001
     gradient_accumulation_steps = 1
     valid_ratio = 0.2
@@ -247,8 +255,8 @@ if __name__ == '__main__':
     # usps_train_loader = DataLoader(usps_train, **train_kwargs)
     # usps_test_loader = DataLoader(usps_test, **test_kwargs)
 
-    two_train_dataset = utils.TwoDataset(mnist_train, usps_train)
-    two_test_dataset = utils.TwoDataset(mnist_test, usps_test)
+    two_train_dataset = utils.TwoDataset(mnist_train, svhn_train)
+    two_test_dataset = utils.TwoDataset(mnist_test, svhn_test)
 
     train_loader = DataLoader(two_train_dataset, **train_kwargs)
     test_loader = DataLoader(two_test_dataset, **test_kwargs)
@@ -260,12 +268,13 @@ if __name__ == '__main__':
     criterion_classification = nn.CrossEntropyLoss().to(device)
 
     # Models
-    input_shape = (1, 64, 64)
+    input_shape = (3, 64, 64)
+    output_shape = (1, 64, 64)
 
     # Initialize generator and discriminator
-    G_TS = GeneratorResNet(input_shape, 3).to(device)
-    G_ST = GeneratorResNet(input_shape, 3).to(device)
-    D_S = Discriminator(input_shape).to(device)
+    G_TS = GeneratorResNet(input_shape, output_shape, 3).to(device)
+    G_ST = GeneratorResNet(output_shape, input_shape, 3).to(device)
+    D_S = Discriminator(output_shape).to(device)
     C = models.resnet18(num_classes=10).to(device)
 
     # Optimizers
@@ -277,10 +286,10 @@ if __name__ == '__main__':
 
     # Learning rate update schedulers
     lr_scheduler_G = torch.optim.lr_scheduler.LambdaLR(
-        optimizer_G, lr_lambda=LambdaLR(epochs, 0, 9).step
+        optimizer_G, lr_lambda=LambdaLR(epochs, 0, 29).step
     )
     lr_scheduler_D_S = torch.optim.lr_scheduler.LambdaLR(
-        optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 9).step
+        optimizer_D_S, lr_lambda=LambdaLR(epochs, 0, 29).step
     )
 
     # Tensor = torch.cuda.FloatTensor  # This, probably, will not work with DirectML
@@ -352,10 +361,10 @@ if __name__ == '__main__':
             loss_GAN_TS = criterion_GAN(D_S(fake_S), valid)
 
             # Cycle loss
-            reconstruct_T = G_ST(fake_S)
-            loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
+            # reconstruct_T = G_ST(fake_S)
+            # loss_cycle_T = criterion_cycle(reconstruct_T, data_T)
 
-            total_G_loss = loss_GAN_TS
+            total_G_loss = 10 * loss_GAN_TS
 
             total_G_loss.backward()
             optimizer_G.step()
@@ -435,5 +444,5 @@ if __name__ == '__main__':
         val_target_acc.append(correct_T / total_T)
         val_avg_acc.append((correct_S + correct_T) / (total_S + total_T))
 
-    np.savez('../../dump/gan_results.npz', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
+    np.savez('../../dump/gan_mnist_svhn_results.npz', train_source_acc=train_source_acc, train_target_acc=train_target_acc, train_avg_acc=train_avg_acc,
              val_source_acc=val_source_acc, val_target_acc=val_target_acc, val_avg_acc=val_avg_acc, gan_loss=gan_loss, dis_loss=dis_loss)
