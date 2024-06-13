@@ -1,4 +1,4 @@
-![image](https://github.com/JohnOiko/single-domain/assets/72659858/08604d08-1e25-45d3-9832-7bc2588b13a2)# Single Domain
+# Single Domain
 Unsupervised Domain Adaptation by Target-to-Source Conversion
 
 ## Table of Contents
