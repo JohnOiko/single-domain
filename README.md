@@ -52,6 +52,6 @@ The GAN ResNet method provides a significant improvement in target accuracy for 
 The additional tasks added in the MultiTask method provide slightly better performance than the baseline classifier, but still worse than the GAN ResNet method, for the MNIST and USPS datasets in both directions. In the case of the MNIST → SVHN adaptation, the MultiTask method outperforms both the baseline and proposed methods by a large margin. It also massively outperforms the proposed method in the SVHN → MNIST adaptation, but still falls short of the baseline classifier.
 
 ## References
-[1] Wang, J., Lan, C., Liu, C., Ouyang, Y., Qin, T., Lu, W., Chen, Y., Zeng, W., Yu, P.S.: Generalizing to Unseen Domains: A Survey on Domain Generalization.
-[2] Sun, Y., Tzeng, E., Darrell, T., Efros, A.A.: Unsupervised Domain Adaptation through Self-Supervision.
+[1] Wang, J., Lan, C., Liu, C., Ouyang, Y., Qin, T., Lu, W., Chen, Y., Zeng, W., Yu, P.S.: Generalizing to Unseen Domains: A Survey on Domain Generalization.  
+[2] Sun, Y., Tzeng, E., Darrell, T., Efros, A.A.: Unsupervised Domain Adaptation through Self-Supervision.  
 [3] Li, L., Gao, K., Cao, J., Huang, Z., Weng, Y., Mi, X., Yu, Z., Li, X., Xia, B.: Progressive Domain Expansion Network for Single Domain Generalization.
